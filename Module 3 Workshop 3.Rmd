@@ -1,0 +1,250 @@
+# MB5370: Techniques in Marine Science 1
+
+# Module 3 - Workshop 03. Metagenome Assembly
+
+````{r setup, include=FALSE} 
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE) 
+````
+
+
+#### Step 1. Create a subdirectory
+
+``` bash
+mkdir raw_data
+cd raw_data
+ln -s /pvol/data/metagenome_assembly/reads_R10_0.5.fastq.gz raw_reads.fastq.gz
+```
+
+#### Step 2. Check files
+
+``` bash
+ls -lR
+```
+
+total 16 -rw-r--r-- 1 jc964980 jc964980 763 Jul 9 00:43 01_metagenome_assembly.Rmd drwxr-xr-x 2 jc964980 jc964980 4096 Jul 9 00:51 raw_data -rw-r--r-- 1 jc964980 jc964980 36 Jul 9 00:26 README.md -rw-r--r-- 1 jc964980 jc964980 205 Jul 9 00:41 workshop3_metasm.Rproj
+
+./raw_data: total 0 lrwxrwxrwx 1 jc964980 jc964980 53 Jul 9 00:48 raw_reads.fastq.gz -\> /pvol/data/metagenome_assembly/reads_R10_0.5.fastq.gz
+
+#### Step 3. Read length distribution
+
+``` bash
+zcat raw_data/raw_reads.fastq.gz | head -n 40000 | bioawk -c fastx '{print $name,length($seq)}' > read_lengths.txt
+```
+
+#### Step 4. Create a plot to visualise the read lenths
+
+```{r}
+library(tidyverse)
+
+rl_data <- read_tsv("read_lengths.txt",col_names = c("id","length"), show_col_types = FALSE)
+
+ggplot(rl_data, aes(x=length/1000)) + 
+  geom_histogram(binwidth = 2) +
+  xlab("Read Length Kb") + ylab("Number of Reads")
+```
+
+#### Step 5. Calculating read 50
+
+```{r}
+total_len <- sum(rl_data$length)
+
+rl_data %>% 
+  arrange(desc(length)) %>% 
+  mutate(cumsum = cumsum(length)) %>% 
+  filter(cumsum>total_len/2) %>% 
+  head(n=1)
+```
+
+#### Step 6. Create flye directory
+
+``` bash
+mkdir flye
+cd flye
+```
+
+#### Step 7. Create shell script and run sbatch command
+
+#!/bin/bash #SBATCH --time=360 #SBATCH --ntasks=8 --mem=4gb
+
+echo "Starting flye in \$(pwd) at \$(date)"
+
+flye --nano-hq ../raw_data/raw_reads.fastq.gz --threads 8 --out-dir mock --meta
+
+echo "Finished flye in \$(pwd) at \$(date)"
+
+``` bash
+sbatch run_flye.sh
+```
+
+#### Step 8. look at mock community
+
+``` bash
+ls /pvol/data/mg/refs/*.fna
+```
+
+#### Step 9. test awk program
+
+``` bash
+cat /pvol/data/mg/refs/*.fna | bioawk -c fastx -f gc.awk
+```
+
+CP003591.1 4681111 0.584631 CP045504.1 4388462 0.636383 CP045505.1 51725 0.578966 AP024165.1 3168162 0.44373 AP024166.1 1553697 0.438144 AP024167.1 320083 0.418301 AP024168.1 221076 0.434733 CP098033.1 1819821 0.445875 CP098034.1 3294375 0.447314 CP098035.1 36224 0.485231 NZ_CP053351.1 4560973 0.34633
+
+#### Step 10. Create a directory called assembly_check
+
+``` bash
+mkdir assembly_check
+cd assembly_check
+```
+
+#### Step 11. Use gc.awk script to print GC and lengths for the assembly
+
+``` bash
+cat ../flye/mock/assembly.fasta | bioawk -c fastx -f ../gc.awk
+```
+
+contig_1 99705 0.467299 contig_10 238087 0.453376 contig_11 320088 0.418304 contig_13 278515 0.446866 contig_14 117896 0.352361 contig_15 77083 0.639752 contig_16 78353 0.446007 contig_17 97669 0.437672 contig_18 333800 0.4505 contig_19 177054 0.449484 contig_2 3178480 0.443751 contig_20 51358 0.660637 contig_21 1866219 0.637309 contig_22 1016282 0.634263 contig_23 276169 0.64378 contig_24 124775 0.44448 contig_25 301255 0.460779 contig_26 174482 0.442773 contig_27 169805 0.453426 contig_28 4681059 0.584626 contig_29 61100 0.465827 contig_3 43207 0.450899 contig_30 97121 0.446186 contig_31 240688 0.626782 contig_32 27473 0.341572 contig_33 574774 0.631935 contig_34 77013 0.443185 contig_36 1786 0.357783 contig_37 12798 0.497968 contig_38 57581 0.433042 contig_39 1553714 0.438145 contig_4 29375 0.461413 contig_40 221077 0.434726 contig_41 51721 0.578952 contig_42 5082 0.666076 contig_5 342477 0.636805 contig_6 484736 0.442515 contig_7 11826 0.5 contig_8 170255 0.454753 contig_9 386387 0.445514
+
+#### Step 12. Run the command again but send outputs to a file called assembly.gc.tsv
+
+``` bash
+cat ../flye/mock/assembly.fasta | bioawk -c fastx -f ../gc.awk > assembly.gc.tsv
+```
+
+#### Step 13. join GC content and coverage depth
+
+```{r}
+gc <- read_tsv("assembly_check/assembly.gc.tsv", col_names = c("#seq_name","length","GC"))
+info <- read_tsv("flye/mock/assembly_info.txt")
+```
+
+#### Step 14. Join #seq_name
+
+```{r}
+gc_info <- info %>%
+  left_join(gc)
+```
+
+#### Step 15. Create histogram by GC content values for assembled contigs in a flye assembly of the mock community dataset
+
+```{r}
+gc_info %>%
+  ggplot(aes(x=GC)) + geom_histogram() + ylab("Number of contigs")
+```
+
+#### Step 16. Create graph fro coverage and GC content of assembled contigs in the mock community assembly
+
+```{r}
+gc_info %>%
+  filter(GC<0.8) %>%
+  filter(cov.<25) %>%
+  ggplot(aes(x=GC,y=cov.)) + geom_point(aes(size=length)) + ylab("Coverage depth")
+```
+
+#### Step 17. Create graph that has the contig lengths shown through point size
+
+```{r}
+library(ggrepel)
+gc_info %>%
+  filter(GC<0.8) %>%
+  filter(cov.<25) %>%
+  ggplot(aes(x=GC,y=cov.)) +geom_point(aes(size=length)) + geom_label_repel(aes(label='#seq_name'))
+```
+
+#### Step 18. compare the length of our assembly
+
+``` bash
+cd ~/workshop3_metasm
+```
+
+#### Step 19. calculate the total lenght of the reference sequences
+
+``` bash
+cat /pvol/data/mg/refs/*.fna | bioawk -c fastx -f gc.awk | awk '{sum+=$2}END{print sum}'
+```
+
+24095709
+
+#### Step 20. Create directory for metabat
+
+``` bash
+mkdir metabat
+cd metabat
+```
+
+#### Step 21. prepare a input file summarising read depth information for all contigs
+
+``` bash
+cat ../flye/mock/assembly_info.txt | grep -v '#' | awk '{OFS="\t";print $1,$3}' > depths.txt
+```
+
+#### Step 22. Create a new version of the assembly file in which the contigs have the same order as those in depths.txt file
+
+``` bash
+cat depths.txt | awk '{print $1}' | xargs samtools faidx ../flye/mock/assembly.fasta > assembly_ordered.fasta
+```
+
+#### Step 23. Run metabat
+
+``` bash
+metabat2 -i assembly_ordered.fasta -a depths.txt --cvExt -o bins/metabat --seed 5
+```
+
+#### Step 24. Quickly inspect which contigs are grouped into which bin by using a grep command
+
+``` bash
+grep '>' bins/*
+```
+
+bins/metabat.1.fa:\>contig_26 bins/metabat.1.fa:\>contig_24 bins/metabat.1.fa:\>contig_34 bins/metabat.2.fa:\>contig_18 bins/metabat.2.fa:\>contig_10 bins/metabat.2.fa:\>contig_19 bins/metabat.2.fa:\>contig_8 bins/metabat.2.fa:\>contig_27 bins/metabat.2.fa:\>contig_1 bins/metabat.2.fa:\>contig_17 bins/metabat.2.fa:\>contig_30 bins/metabat.2.fa:\>contig_29 bins/metabat.2.fa:\>contig_38 bins/metabat.2.fa:\>contig_3 bins/metabat.2.fa:\>contig_4 bins/metabat.3.fa:\>contig_6 bins/metabat.3.fa:\>contig_9 bins/metabat.3.fa:\>contig_25 bins/metabat.3.fa:\>contig_13 bins/metabat.3.fa:\>contig_16 bins/metabat.4.fa:\>contig_21 bins/metabat.4.fa:\>contig_22 bins/metabat.4.fa:\>contig_33 bins/metabat.4.fa:\>contig_5 bins/metabat.4.fa:\>contig_23 bins/metabat.4.fa:\>contig_31 bins/metabat.4.fa:\>contig_15 bins/metabat.4.fa:\>contig_20 bins/metabat.5.fa:\>contig_2 bins/metabat.5.fa:\>contig_39 bins/metabat.5.fa:\>contig_11 bins/metabat.5.fa:\>contig_40
+
+#### Step 25. Create a directory for checkm
+
+``` bash
+cd ~/workshop3_metasm
+mkdir checkm
+cd checkm
+```
+
+#### Step 26. Prepare inputs for checkM
+
+``` bash
+mkdir bins
+cp ../metabat/bins/metabat.*.fa bins/
+```
+
+#### Step 27. Check contig size
+
+``` bash
+cat ../flye/mock/assembly.fasta | bioawk -c fastx '{print $name, length($seq)}' | sort -n -k2
+```
+
+#### Step 28. Extract config from the assembly and include it in metabat bins
+
+``` bash
+samtools faidx ../flye/mock/assembly.fasta contig_28 >bins/contig_28.fa
+```
+
+#### Step 29. Create run_checkm.sh file
+
+#!/bin/bash #SBATCH --time=60 #SBATCH --ntasks=4 --mem=40gb
+
+echo "Starting checkm in \$(pwd) at \$(date)"
+
+shopt -s expand_aliases alias checkm='apptainer run -B /pvol/:/pvol /pvol/data/sif/checkm.sif checkm'
+
+checkm lineage_wf bins out -t 4 -x fa -f checkm_results.txt
+
+echo "Finished checkm in \$(pwd) at \$(date)"
+
+#### Step 30. Submit job
+
+``` bash
+sbatch run_checkm.sh
+```
+
+#### Step 31. check progress
+
+``` bash
+tail -f slurm-408.out
+```
