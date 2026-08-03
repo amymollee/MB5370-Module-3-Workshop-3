@@ -1,4 +1,4 @@
-# Module 3 Workshop 3
+# MB5370 Module 3 Workshop 3
 
 Workshop 3: Metagenome assembly extends the single-genome skills from Workshop 2 to a mock community of five bacterial species, designed to capture key metagenomic challenges like variable species abundance and two closely related, hard-to-separate Vibrio species. Reference genome data was used to assess the resulting assembly. The workshop follows five stages that include examining reads, assembly, QC, binning, and bin assessment.
 
